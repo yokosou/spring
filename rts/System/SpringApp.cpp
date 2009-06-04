@@ -412,6 +412,7 @@ bool SpringApp::GetDisplayGeometry()
 	}
 
 #ifdef __APPLE__
+	// todo: enable this function, RestoreWindowPosition() and SaveWindowPosition() on Mac
 	return false;
 
 
@@ -986,6 +987,9 @@ int SpringApp::Run(int argc, char *argv[])
  */
 void SpringApp::RestoreWindowPosition()
 {
+#ifdef __APPLE__
+	return;
+#else
 	if (!fullscreen) {
 		SDL_SysWMinfo info;
 		SDL_VERSION(&info.version);
@@ -1033,6 +1037,7 @@ void SpringApp::RestoreWindowPosition()
 #endif
 		}
 	}
+#endif // ifdef __APPLE__
 }
 
 /**
@@ -1040,6 +1045,9 @@ void SpringApp::RestoreWindowPosition()
  */
 void SpringApp::SaveWindowPosition()
 {
+#ifdef __APPLE__
+	return;
+#else
 	if (!fullscreen) {
 #if defined(_WIN32)
 		SDL_SysWMinfo info;
@@ -1066,6 +1074,7 @@ void SpringApp::SaveWindowPosition()
 		configHandler->Set("WindowPosX", windowPosX);
 		configHandler->Set("WindowPosY", windowPosY);
 	}
+#endif
 }
 
 
