@@ -2723,8 +2723,6 @@ bool CGame::Draw() {
 
 	mouse->EmptyMsgQueUpdate();
 
-	unitDrawer->Update();
-
 	if(lastSimFrame!=gs->frameNum) {
 		CInputReceiver::CollectGarbage();
 		if(!skipping) {
@@ -2796,6 +2794,8 @@ bool CGame::Draw() {
 		lastUpdate = SDL_GetTicks();
 	}
 
+	unitDrawer->Update();
+	
 //	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
