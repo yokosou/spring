@@ -39,7 +39,7 @@ public:
 
 	static void SetHeightRolloffModifer(float mod)
 	{
-		heightAdjustedRolloffModifier = mod;
+		heightAdjustedRolloffModifier = mod > 0.0f ? mod : 0.0f;
 	};
 
 private:

@@ -106,6 +106,9 @@ CUnitDrawer::CUnitDrawer(void)
 	advShading = !!configHandler->Get("AdvUnitShading", GLEW_ARB_fragment_program ? 1: 0);
 
 	cloakAlpha = std::max(0.11f, std::min(1.0f, 1.0f - configHandler->Get("UnitTransparency", 0.7f)));
+	cloakAlpha1 = std::min(1.0f, cloakAlpha + 0.1f);
+	cloakAlpha2 = std::min(1.0f, cloakAlpha + 0.2f);
+	cloakAlpha3 = std::min(1.0f, cloakAlpha + 0.4f);
 
 	if (advShading && !GLEW_ARB_fragment_program) {
 		logOutput.Print("You are missing an OpenGL extension needed to use advanced unit shading (GL_ARB_fragment_program)");
@@ -145,6 +148,12 @@ CUnitDrawer::CUnitDrawer(void)
 		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
 		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
 		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
+
+		if (unitReflectFBO.IsValid()) {
+			unitReflectFBO.Bind();
+			unitReflectFBO.CreateRenderBuffer(GL_DEPTH_ATTACHMENT_EXT, GL_DEPTH_COMPONENT, reflTexSize, reflTexSize);
+			unitReflectFBO.Unbind();
+		}
 
 		glGenTextures(1,&specularTex);
 		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, specularTex);
@@ -239,6 +248,14 @@ void CUnitDrawer::Update(void)
 	for(std::set<CUnit *>::iterator ui=uh->toBeAdded.begin(); ui!=uh->toBeAdded.end(); ++ui)
 		uh->renderUnits.push_back(*ui);
 	uh->toBeAdded.clear();
+
+	{
+		GML_RECMUTEX_LOCK(unit); // DrawWorld
+
+		for (std::list<CUnit*>::iterator usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
+			(*usi)->UpdateDrawPos();
+		}
+	}
 }
 
 
@@ -870,15 +887,23 @@ void CUnitDrawer::CleanUpGhostDrawing() const
 }
 
 
-void CUnitDrawer::DrawCloakedUnits(bool submerged)
+void CUnitDrawer::DrawCloakedUnits(bool submerged, bool noAdvShading)
 {
 	GML_RECMUTEX_LOCK(unit); // DrawCloakedUnits
 
-	SetupForGhostDrawing();
-	SetupFor3DO();
+	bool oldAdvShading = advShading;
+	advShading = advShading && !noAdvShading;
+	if(advShading) {
+		SetupForUnitDrawing();
+		glDisable(GL_ALPHA_TEST);
+	}
+	else
+		SetupForGhostDrawing();
 
 	double plane[4]={0,submerged?-1:1,0,0};
 	glClipPlane(GL_CLIP_PLANE3, plane);
+
+	SetupFor3DO();
 
 	glColor4f(1, 1, 1, cloakAlpha);
 
@@ -896,6 +921,8 @@ void CUnitDrawer::DrawCloakedUnits(bool submerged)
 				const UnitDef* udef = ti->second.unitdef;
 				S3DModel* model = udef->LoadModel();
 
+				SetTeamColour(ti->second.team, cloakAlpha);
+
 				model->DrawStatic();
 				glPopMatrix();
 			}
@@ -903,12 +930,14 @@ void CUnitDrawer::DrawCloakedUnits(bool submerged)
 				float3 pos = ti->second.pos;
 				const UnitDef *unitdef = ti->second.unitdef;
 
+				SetTeamColour(ti->second.team, cloakAlpha3);
+
 				BuildInfo bi(unitdef, pos, ti->second.facing);
 				pos = helper->Pos2BuildPos(bi);
 
 				float xsize = bi.GetXSize() * 4;
 				float zsize = bi.GetZSize() * 4;
-				glColor4f(0.2f, 1, 0.2f, 0.7f);
+				glColor4f(0.2f, 1, 0.2f, cloakAlpha3);
 				glDisable(GL_TEXTURE_2D);
 				glBegin(GL_LINE_STRIP);
 				glVertexf3(pos+float3( xsize, 1,  zsize));
@@ -917,7 +946,7 @@ void CUnitDrawer::DrawCloakedUnits(bool submerged)
 				glVertexf3(pos+float3( xsize, 1, -zsize));
 				glVertexf3(pos+float3( xsize, 1,  zsize));
 				glEnd();
-				glColor4f(1, 1, 1, 0.3f);
+				glColor4f(1, 1, 1, cloakAlpha);
 				glEnable(GL_TEXTURE_2D);
 			}
 		}
@@ -932,10 +961,17 @@ void CUnitDrawer::DrawCloakedUnits(bool submerged)
 	DrawCloakedUnitsHelper(drawCloakedS3O, ghostBuildingsS3O, true);
 
 	// reset gl states
-	CleanUpGhostDrawing();
+	if(advShading) {
+		glEnable(GL_ALPHA_TEST);
+		CleanUpUnitDrawing();
+	}
+	else
+		CleanUpGhostDrawing();
 
 	// shader rendering
 	DrawCloakedShaderUnits();
+
+	advShading = oldAdvShading;
 }
 
 
@@ -953,14 +989,15 @@ void CUnitDrawer::DrawCloakedUnitsHelper(GML_VECTOR<CUnit*>& cloakedUnits, std::
 			if (is_s3o) {
 				texturehandlerS3O->SetS3oTexture(unit->model->textureType);
 			}
-			SetBasicTeamColour(unit->team);
+			SetTeamColour(unit->team, cloakAlpha);
+
 			DrawUnitNow(unit);
 		} else {
 			// ghosted enemy units
 			if (losStatus & LOS_CONTRADAR) {
-				glColor4f(0.9f, 0.9f, 0.9f, 0.5f);
+				glColor4f(0.9f, 0.9f, 0.9f, cloakAlpha2);
 			} else {
-				glColor4f(0.6f, 0.6f, 0.6f, 0.4f);
+				glColor4f(0.6f, 0.6f, 0.6f, cloakAlpha1);
 			}
 			glPushMatrix();
 			glTranslatef3(unit->pos);
@@ -974,7 +1011,7 @@ void CUnitDrawer::DrawCloakedUnitsHelper(GML_VECTOR<CUnit*>& cloakedUnits, std::
 			} else {
 				model = decoyDef->LoadModel();
 			}
-			SetBasicTeamColour(unit->team);
+			SetTeamColour(unit->team, (losStatus & LOS_CONTRADAR) ? cloakAlpha2 : cloakAlpha1);
 
 			if (is_s3o) {
 				texturehandlerS3O->SetS3oTexture(model->textureType);
@@ -983,12 +1020,12 @@ void CUnitDrawer::DrawCloakedUnitsHelper(GML_VECTOR<CUnit*>& cloakedUnits, std::
 			model->DrawStatic();
 			glPopMatrix();
 
-			glColor4f(1, 1, 1, 0.3f);
+			glColor4f(1, 1, 1, cloakAlpha);
 		}
 	}
 
 	// buildings that died but were still ghosted
-	glColor4f(0.6f, 0.6f, 0.6f, 0.4f);
+	glColor4f(0.6f, 0.6f, 0.6f, cloakAlpha1);
 	for (std::list<GhostBuilding*>::iterator gbi = ghostedBuildings.begin(); gbi != ghostedBuildings.end();) {
 		if (loshandler->InLos((*gbi)->pos, gu->myAllyTeam)) {
 			if ((*gbi)->decal)
@@ -1001,7 +1038,7 @@ void CUnitDrawer::DrawCloakedUnitsHelper(GML_VECTOR<CUnit*>& cloakedUnits, std::
 				glPushMatrix();
 				glTranslatef3((*gbi)->pos);
 				glRotatef((*gbi)->facing * 90.0f, 0, 1, 0);
-				SetBasicTeamColour((*gbi)->team);
+				SetTeamColour((*gbi)->team, cloakAlpha1);
 
 				if (is_s3o) {
 					texturehandlerS3O->SetS3oTexture((*gbi)->model->textureType);
@@ -1393,6 +1430,11 @@ void CUnitDrawer::UpdateReflectTex(void)
 
 void CUnitDrawer::CreateReflectionFace(unsigned int gltype, float3 camdir)
 {
+	if (unitReflectFBO.IsValid()) {
+		unitReflectFBO.Bind();
+		unitReflectFBO.AttachTexture(boxtex, gltype);
+	}
+
 	glViewport(0, 0, reflTexSize, reflTexSize);
 
 //	CCamera *realCam = camera;
@@ -1417,14 +1459,17 @@ void CUnitDrawer::CreateReflectionFace(unsigned int gltype, float3 camdir)
 	glLoadIdentity();
 	gluPerspective(90, 1, NEAR_PLANE, gu->viewRange);
 	glMatrixMode(GL_MODELVIEW);
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glClear(GL_DEPTH_BUFFER_BIT);
 
 	sky->Draw();
 	readmap->GetGroundDrawer()->Draw(false, true);
 
-	glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, boxtex);
-	glCopyTexSubImage2D(gltype, 0, 0, 0, 0, 0,reflTexSize, reflTexSize);
+	if (unitReflectFBO.IsValid()) {
+		unitReflectFBO.Unbind();
+	}else{
+		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, boxtex);
+		glCopyTexSubImage2D(gltype, 0, 0, 0, 0, 0,reflTexSize, reflTexSize);
+	}
 
 	glViewport(gu->viewPosX, 0, gu->viewSizeX, gu->viewSizeY);
 

@@ -1540,7 +1540,7 @@ bool CGame::ActionPressed(const Action& action,
 		if (!inputReceivers.empty() && dynamic_cast<CQuitBox*>(inputReceivers.front()) == 0)
 			new CQuitBox();
 	}
-	else if (cmd == "quitforce") {
+	else if (cmd == "quitforce" || cmd == "quit") {
 		logOutput.Print("User exited");
 		globalQuit = true;
 	}
@@ -2524,7 +2524,6 @@ bool CGame::Update()
 	{
 		UpdateUI(false);
 		sound->Update();
-		sound->UpdateListener(camera->pos, camera->forward, camera->up, gu->lastFrameTime); //TODO call only when camera changed
 	}
 
 	net->Update();
@@ -2565,14 +2564,6 @@ bool CGame::DrawWorld()
 	SCOPED_TIMER("Draw world");
 
 	CBaseGroundDrawer* gd = readmap->GetGroundDrawer();
-
-	{
-		GML_RECMUTEX_LOCK(unit); // DrawWorld
-
-		for (std::list<CUnit*>::iterator usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
-			(*usi)->UpdateDrawPos();
-		}
-	}
 
 	if (drawSky) {
 		sky->Draw();
@@ -2736,8 +2727,10 @@ bool CGame::Draw() {
 
 	if(lastSimFrame!=gs->frameNum) {
 		CInputReceiver::CollectGarbage();
-		if(!skipping)
+		if(!skipping) {
 			water->Update();
+			sound->UpdateListener(camera->pos, camera->forward, camera->up, gu->lastFrameTime); //TODO call only when camera changed
+		}
 		lastSimFrame=gs->frameNum;
 	}
 
@@ -2924,7 +2917,7 @@ bool CGame::Draw() {
 		//print some infos (fps,gameframe,particles)
 		glColor4f(1,1,0.5f,0.8f);
 		font->glFormat(0.03f, 0.02f, 1.0f, FONT_SCALE | FONT_NORM, "FPS: %d Frame: %d Particles: %d (%d)",
-		                 fps, gs->frameNum, ph->ps.size(), ph->currentParticles);
+		                 fps, gs->frameNum, ph->projectiles.size(), ph->currentParticles);
 
 		if (playing) {
 			font->glFormat(0.03f, 0.07f, 0.7f, FONT_SCALE | FONT_NORM, "xpos: %5.0f ypos: %5.0f zpos: %5.0f speed %2.2f",
@@ -3221,8 +3214,6 @@ void CGame::SimFrame() {
 
 	teamHandler->GameFrame(gs->frameNum);
 	playerHandler->GameFrame(gs->frameNum);
-
-	ph->AddRenderObjects(); // delayed addition of new rendering objects, to make sure they will be drawn next draw frame
 
 	lastUpdate = SDL_GetTicks();
 }
@@ -4155,8 +4146,8 @@ void CGame::MakeMemDump(void)
 		file << "  heading " << u->heading << " power " << u->power << " experience " << u->experience << "\n";
 		file << " health " << u->health << "\n";
 	}
-	Projectile_List::iterator psi;
-	for(psi=ph->ps.begin();psi != ph->ps.end();++psi){
+	ThreadListSimRender<CProjectile*>::iterator psi;
+	for(psi=ph->projectiles.begin();psi != ph->projectiles.end();++psi){
 		CProjectile* p=*psi;
 		file << "Projectile " << p->radius << "\n";
 		file << "  xpos " << p->pos.x << " ypos " << p->pos.y << " zpos " << p->pos.z << "\n";
