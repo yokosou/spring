@@ -125,6 +125,7 @@
 #include "EventHandler.h"
 #include "Sound/Sound.h"
 #include "Sound/AudioChannel.h"
+#include "Sound/Music.h"
 #include "FileSystem/SimpleParser.h"
 #include "Net/RawPacket.h"
 #include "Net/UnpackPacket.h"
@@ -154,12 +155,10 @@
 #  include "Platform/Win/AVIGenerator.h"
 #endif
 
-#ifdef DIRECT_CONTROL_ALLOWED
-#  include "myMath.h"
-#  include "Sim/MoveTypes/MoveType.h"
-#  include "Sim/Weapons/Weapon.h"
-#  include "Sim/Weapons/WeaponDefHandler.h"
-#endif
+#include "myMath.h"
+#include "Sim/MoveTypes/MoveType.h"
+#include "Sim/Weapons/Weapon.h"
+#include "Sim/Weapons/WeaponDefHandler.h"
 
 
 #ifdef USE_GML
@@ -232,11 +231,9 @@ CR_REG_METADATA(CGame,(
 //	CR_MEMBER(consumeSpeed),
 //	CR_MEMBER(lastframe),
 //	CR_MEMBER(leastQue),
-//#ifdef DIRECT_CONTROL_ALLOWED // we cant have preprocessor directives here, MSVC chokes on it
 	CR_MEMBER(oldHeading),
 	CR_MEMBER(oldPitch),
 	CR_MEMBER(oldStatus),
-//#endif
 
 	CR_POSTLOAD(PostLoad)
 ));
@@ -325,11 +322,9 @@ CGame::CGame(std::string mapname, std::string modName, CLoadSaveHandler *saveFil
 	  wordCompletion->AddWord(playerHandler->Player(pp)->name, false, false, false);
 	}
 
-#ifdef DIRECT_CONTROL_ALLOWED
 	oldPitch   = 0;
 	oldHeading = 0;
 	oldStatus  = 255;
-#endif
 
 	sound = new CSound();
 	chatSound = sound->GetSoundId("IncomingChat", false);
@@ -1239,21 +1234,6 @@ bool CGame::ActionPressed(const Action& action,
 			logOutput.Print("Sound enabled");
 		}
 	}
-	else if (cmd == "volume") { // deprecated, use "/set snd_volmaster X" instead
-		char* endPtr;
-		const char* startPtr = action.extra.c_str();
-		float volume = std::max(0.0f, std::min(1.0f, (float)strtod(startPtr, &endPtr)));
-		if (endPtr != startPtr) {
-			configHandler->Set("snd_volmaster", volume);
-		}
-	}
-	else if (cmd == "unitreplyvolume") { // deprecated, use "/set snd_volunitreply X" instead
-		float newVol = 1.0;
-		std::istringstream buf(action.extra);
-		buf >> newVol;
-		const float volume = std::max(0.0f, std::min(1.0f, newVol));
-		Channels::UnitReply.SetVolume(volume);
-	}
 	else if (cmd == "soundchannelenable") {
 		std::string channel;
 		int enableInt, enable;
@@ -1273,6 +1253,8 @@ bool CGame::ActionPressed(const Action& action,
 			Channels::Battle.Enable(enable);
 		else if (channel == "UserInterface")
 			Channels::UserInterface.Enable(enable);
+		else if (channel == "Music")
+			Channels::BGMusic.Enable(enable);
 	}
 	else if (cmd == "savegame"){
 		if (filesystem.CreateDirectory("Saves")) {
@@ -1492,7 +1474,6 @@ bool CGame::ActionPressed(const Action& action,
 		net->Send(CBaseNetProtocol::Get().SendUserSpeed(gu->myPlayerNum, speed));
 	}
 
-#ifdef DIRECT_CONTROL_ALLOWED
 	else if (cmd == "controlunit") {
 		Command c;
 		c.id=CMD_STOP;
@@ -1500,8 +1481,6 @@ bool CGame::ActionPressed(const Action& action,
 		selectedUnits.GiveCommand(c,false);		//force it to update selection and clear order que
 		net->Send(CBaseNetProtocol::Get().SendDirectControl(gu->myPlayerNum));
 	}
-#endif
-
 	else if (cmd == "showshadowmap") {
 		shadowHandler->showShadowMap = !shadowHandler->showShadowMap;
 	}
@@ -2004,7 +1983,11 @@ bool CGame::ActionPressed(const Action& action,
 	}
 	else {
 		if (!Console::Instance().ExecuteAction(action))
+		{
+			if (guihandler != NULL) // maybe a widget is interested?
+				guihandler->RunLayoutCommand(action.rawline);
 			return false;
+		}
 	}
 
 	} // END: MSVC limit workaround
@@ -2304,7 +2287,7 @@ void CGame::ActionReceived(const Action& action, int playernum)
 							float minposy = ground->GetHeight2(minposx, minposz);
 							const float3 upos(minposx, minposy, minposz);
 							CFeature* feature = new CFeature();
-							feature->Initialize(upos, featureDef, 0, 0, team, "");
+							feature->Initialize(upos, featureDef, 0, 0, team, teamHandler->AllyTeam(team), "");
 							--total;
 						}
 					}
@@ -2523,7 +2506,6 @@ bool CGame::Update()
 	if (!skipping)
 	{
 		UpdateUI(false);
-		sound->Update();
 	}
 
 	net->Update();
@@ -2721,48 +2703,39 @@ bool CGame::DrawMT() {
 bool CGame::Draw() {
 #endif
 
-	mouse->EmptyMsgQueUpdate();
-
 	if(lastSimFrame!=gs->frameNum) {
 		CInputReceiver::CollectGarbage();
 		if(!skipping) {
 			water->Update();
 			sound->UpdateListener(camera->pos, camera->forward, camera->up, gu->lastFrameTime); //TODO call only when camera changed
+			ph->UpdateTextures();
+			sky->Update();
 		}
 		lastSimFrame=gs->frameNum;
+	}
+
+	//! timings and frame interpolation
+	thisFps++;
+	const unsigned currentTime = SDL_GetTicks();
+	updateDeltaSeconds = 0.001f * float(currentTime - lastUpdateRaw);
+	lastUpdateRaw = SDL_GetTicks();
+	if(!gs->paused && !HasLag() && gs->frameNum>1 && !creatingVideo){
+		gu->lastFrameStart = SDL_GetTicks();
+		gu->weightedSpeedFactor = 0.001f * GAME_SPEED * gs->speedFactor;
+		gu->timeOffset = (float)(gu->lastFrameStart - lastUpdate) * gu->weightedSpeedFactor;
+	} else  {
+		gu->timeOffset=0;
+		lastUpdate = SDL_GetTicks();
 	}
 
 	if(!skipping)
 		UpdateUI(true);
 
-	thisFps++;
-
 	SetDrawMode(normalDraw);
-
-	const unsigned currentTime = SDL_GetTicks();
-	updateDeltaSeconds = 0.001f * float(currentTime - lastUpdateRaw);
-	lastUpdateRaw = SDL_GetTicks();
 
  	if (luaUI)    { luaUI->CheckStack(); }
 	if (luaGaia)  { luaGaia->CheckStack(); }
 	if (luaRules) { luaRules->CheckStack(); }
-
-	//GML delayed loading
-	texturehandlerS3O->Update();
-	modelParser->Update();
-	treeDrawer->UpdateDraw();
-	readmap->UpdateDraw();
-	fartextureHandler->CreateFarTextures();
-
-	LuaUnsyncedCtrl::ClearUnitCommandQueues();
-	eventHandler.Update();
-	eventHandler.DrawGenesis();
-
-#ifdef USE_GML
-	//! in non GML builds runs in SimFrame!
-	ph->UpdateTextures();
-	sky->Update();
-#endif
 
 	// XXX ugly hack to minimize luaUI errors
 	if (luaUI && luaUI->GetCallInErrors() >= 5) {
@@ -2777,30 +2750,28 @@ bool CGame::Draw() {
 		LogObject() << "===>>>  Please report this error to the forum or mantis with your infolog.txt\n";
 	}
 
+	texturehandlerS3O->Update();
+	modelParser->Update();
+	treeDrawer->UpdateDraw();
+	readmap->UpdateDraw();
+	fartextureHandler->CreateFarTextures();
+	mouse->EmptyMsgQueUpdate();
+	unitDrawer->Update();
+	lineDrawer.UpdateLineStipple();
+
+	LuaUnsyncedCtrl::ClearUnitCommandQueues();
+	eventHandler.Update();
+	eventHandler.DrawGenesis();
+
 	if (!gu->active) {
 		guihandler->Update();
 		SDL_Delay(10); // milliseconds
 		return true;
 	}
 
-	lineDrawer.UpdateLineStipple();
-
-	if(!gs->paused && !HasLag() && gs->frameNum>1 && !creatingVideo){
-		gu->lastFrameStart = SDL_GetTicks();
-		gu->weightedSpeedFactor = 0.001f * GAME_SPEED * gs->speedFactor;
-		gu->timeOffset = (float)(gu->lastFrameStart - lastUpdate) * gu->weightedSpeedFactor;
-	} else  {
-		gu->timeOffset=0;
-		lastUpdate = SDL_GetTicks();
-	}
-
-	unitDrawer->Update();
-	
-//	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
 	glDisable(GL_BLEND);
-	glDisable(GL_TEXTURE_2D);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	//glDisable(GL_TEXTURE_2D);
 
 	//set camera
 	camHandler->UpdateCam();
@@ -2821,8 +2792,7 @@ bool CGame::Draw() {
 		gd->Update(); // let it update before shadows have to be drawn
 	}
 
-	const bool doDrawWorld =
-		hideInterface || !minimap->GetMaximized() || minimap->GetMinimized();
+	const bool doDrawWorld = hideInterface || !minimap->GetMaximized() || minimap->GetMinimized();
 
 	if (doDrawWorld) {
 		SCOPED_TIMER("Shadows/Reflect");
@@ -2885,11 +2855,9 @@ bool CGame::Draw() {
 		glLineWidth(1.0f);
 	}
 
-#ifdef DIRECT_CONTROL_ALLOWED
 	if (gu->directControl) {
 		DrawDirectControlHud();
 	}
-#endif
 
 	glEnable(GL_TEXTURE_2D);
 
@@ -2969,16 +2937,16 @@ bool CGame::Draw() {
 
 
 		if (playerRoster.GetSortType() != PlayerRoster::Disabled) {
-			font_options ^= FONT_RIGHT;
-
+			static std::string chart; chart = "";
+			static std::string prefix;
 			char buf[128];
+
 			int count;
 			const std::vector<int>& indices = playerRoster.GetIndices(&count, true);
 
 			for (int a = 0; a < count; ++a) {
 				const CPlayer* p = playerHandler->Player(indices[a]);
 				float4 color(1.0f,1.0f,1.0f,1.0f);
-				std::string prefix;
 				if(p->ping != PATHING_FLAG || gs->frameNum != 0) {
 					prefix = "S|";
 					if (!p->spectator) {
@@ -3006,10 +2974,17 @@ bool CGame::Draw() {
 							p->team, prefix.c_str(), p->name.c_str(), (((int)p->cpuUsage) & 0x1)?"PC":"BO",
 							((int)p->cpuUsage) & 0xFE, (((int)p->cpuUsage)>>8)*1000);
 				}
-				smallFont->SetColors(&color, NULL);
-				float x = 0.88f, y = 0.005f + (0.0125f * (count - a - 1));
-				smallFont->glPrint(x, y, 1.0f, font_options, buf);
+				chart += '\xff';
+				chart += (unsigned char)(color[0] * 255.0f);
+				chart += (unsigned char)(color[1] * 255.0f);
+				chart += (unsigned char)(color[2] * 255.0f);
+				chart += buf;
+				if (a + 1 < count) chart += "\n";
 			}
+
+			font_options |= FONT_BOTTOM;
+			smallFont->SetColors();
+			smallFont->glPrint(1.0f - 5 * gu->pixelX, 0.00f + 5 * gu->pixelY, 1.0f, font_options, chart);
 		}
 
 		smallFont->End();
@@ -3160,15 +3135,10 @@ void CGame::SimFrame() {
 		sound->NewFrame();
 		treeDrawer->Update();
 		eoh->Update();
-#ifndef USE_GML
-		ph->UpdateTextures();
-		sky->Update();
-#endif
 		for (size_t a = 0; a < grouphandlers.size(); a++) {
 			grouphandlers[a]->Update();
 		}
 		profiler.Update();
-#ifdef DIRECT_CONTROL_ALLOWED
 		if (gu->directControl) {
 			unsigned char status = 0;
 			if (camMove[0]) { status |= (1 << 0); }
@@ -3188,7 +3158,6 @@ void CGame::SimFrame() {
 					                                                status, hp.x, hp.y));
 			}
 		}
-#endif
 	}
 
 	//everything from here is simulation
@@ -3729,9 +3698,7 @@ void CGame::ClientReadNet()
 					for (ui = netSelUnits.begin(); ui != netSelUnits.end(); ++ui){
 						CUnit* unit = uh->units[*ui];
 						if (unit && unit->team==team1 && !unit->beingBuilt) {
-#ifdef DIRECT_CONTROL_ALLOWED
 							if (!unit->directControl)
-#endif
 								unit->ChangeTeam(team2, CUnit::ChangeGiven);
 						}
 					}
@@ -3884,7 +3851,6 @@ void CGame::ClientReadNet()
 				break;
 			}
 
-#ifdef DIRECT_CONTROL_ALLOWED
 			case NETMSG_DIRECT_CONTROL: {
 				int player = inbuf[1];
 
@@ -3961,7 +3927,6 @@ void CGame::ClientReadNet()
 				AddTraffic(player, packetCode, dataLength);
 				break;
 			}
-#endif // DIRECT_CONTROL_ALLOWED
 
 			case NETMSG_SETPLAYERNUM:
 			case NETMSG_ATTEMPTCONNECT: {
@@ -3984,15 +3949,12 @@ void CGame::ClientReadNet()
 	return;
 }
 
-#ifdef DIRECT_CONTROL_ALLOWED
 float3 lastDCpos;
 float3 *plastDCpos=NULL;
-#endif
 
 void CGame::UpdateUI(bool cam)
 {
 	//move camera if arrow keys pressed
-#ifdef DIRECT_CONTROL_ALLOWED
 	if (gu->directControl && !cam) {
 		CUnit* owner = gu->directControl;
 
@@ -4020,7 +3982,6 @@ void CGame::UpdateUI(bool cam)
 		}
 	}
 	if (!gu->directControl)
-#endif
 	{
 		float cameraSpeed=1;
 		if (camMove[7]){
@@ -4138,16 +4099,14 @@ void CGame::MakeMemDump(void)
 	}
 
 	file << "Frame " << gs->frameNum <<"\n";
-	std::list<CUnit*>::iterator usi;
-	for (usi = uh->activeUnits.begin(); usi != uh->activeUnits.end(); usi++) {
+	for (std::list<CUnit*>::iterator usi = uh->activeUnits.begin(); usi != uh->activeUnits.end(); usi++) {
 		CUnit* u=*usi;
 		file << "Unit " << u->id << "\n";
 		file << "  xpos " << u->pos.x << " ypos " << u->pos.y << " zpos " << u->pos.z << "\n";
 		file << "  heading " << u->heading << " power " << u->power << " experience " << u->experience << "\n";
 		file << " health " << u->health << "\n";
 	}
-	ThreadListSimRender<CProjectile*>::iterator psi;
-	for(psi=ph->projectiles.begin();psi != ph->projectiles.end();++psi){
+	for(ProjectileContainer::iterator psi=ph->projectiles.begin(); psi != ph->projectiles.end();++psi){
 		CProjectile* p=*psi;
 		file << "Projectile " << p->radius << "\n";
 		file << "  xpos " << p->pos.x << " ypos " << p->pos.y << " zpos " << p->pos.z << "\n";
@@ -4170,7 +4129,6 @@ void CGame::MakeMemDump(void)
 
 void CGame::DrawDirectControlHud(void)
 {
-#ifdef DIRECT_CONTROL_ALLOWED
 	CUnit* unit = gu->directControl;
 	glPushMatrix();
 
@@ -4378,7 +4336,6 @@ void CGame::DrawDirectControlHud(void)
 	glEnable(GL_DEPTH_TEST);
 
 	glPopMatrix();
-#endif
 }
 
 

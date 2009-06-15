@@ -243,14 +243,16 @@ void CUnitDrawer::Update(void)
 		}
 	}
 
-	GML_STDMUTEX_LOCK(render); // Update
+	{
+		GML_STDMUTEX_LOCK(runit); // Update
 
-	for(std::set<CUnit *>::iterator ui=uh->toBeAdded.begin(); ui!=uh->toBeAdded.end(); ++ui)
-		uh->renderUnits.push_back(*ui);
-	uh->toBeAdded.clear();
+		for(std::set<CUnit *>::iterator ui=uh->toBeAdded.begin(); ui!=uh->toBeAdded.end(); ++ui)
+			uh->renderUnits.push_back(*ui);
+		uh->toBeAdded.clear();
+	}
 
 	{
-		GML_RECMUTEX_LOCK(unit); // DrawWorld
+		GML_RECMUTEX_LOCK(unit); // Update
 
 		for (std::list<CUnit*>::iterator usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
 			(*usi)->UpdateDrawPos();
@@ -323,12 +325,11 @@ inline void CUnitDrawer::DrawUnit(CUnit* unit)
 }
 
 
-inline void CUnitDrawer::DoDrawUnit(CUnit *unit, bool drawReflection, bool drawRefraction, CUnit *excludeUnit) {
-#ifdef DIRECT_CONTROL_ALLOWED
+inline void CUnitDrawer::DoDrawUnit(CUnit *unit, bool drawReflection, bool drawRefraction, CUnit *excludeUnit)
+{
 	if (unit == excludeUnit) {
 		return;
 	}
-#endif
 	if (unit->noDraw) {
 		return;
 	}
@@ -443,9 +444,7 @@ void CUnitDrawer::Draw(bool drawReflection, bool drawRefraction)
 	SetupForUnitDrawing();
 	SetupFor3DO();
 
-#ifdef DIRECT_CONTROL_ALLOWED
 	CUnit* excludeUnit = drawReflection ? NULL : gu->directControl;
-#endif
 
 	GML_RECMUTEX_LOCK(unit); // Draw
 
@@ -456,9 +455,7 @@ void CUnitDrawer::Draw(bool drawReflection, bool drawRefraction)
 	if(multiThreadDrawUnit) {
 		mt_drawReflection=drawReflection; // these member vars will be accessed by DoDrawUnitMT
 		mt_drawRefraction=drawRefraction;
-	#ifdef DIRECT_CONTROL_ALLOWED
 		mt_excludeUnit=excludeUnit;
-	#endif
 		gmlProcessor->Work(NULL,NULL,&CUnitDrawer::DoDrawUnitMT,this,gmlThreadCount,FALSE,&uh->renderUnits,uh->renderUnits.size(),50,100,TRUE);
 	}
 	else
@@ -466,13 +463,7 @@ void CUnitDrawer::Draw(bool drawReflection, bool drawRefraction)
 	{
 		for (std::list<CUnit*>::iterator usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
 			CUnit* unit = *usi;
-			DoDrawUnit(unit,drawReflection,drawRefraction,
-		#ifdef DIRECT_CONTROL_ALLOWED
-									excludeUnit
-		#else
-									NULL
-		#endif
-								);
+			DoDrawUnit(unit,drawReflection,drawRefraction, excludeUnit);
 		}
 	}
 
@@ -481,8 +472,7 @@ void CUnitDrawer::Draw(bool drawReflection, bool drawRefraction)
 
 		GML_STDMUTEX_LOCK(temp); // Draw
 
-		std::multimap<int, TempDrawUnit>::iterator ti;
-		for (ti = tempDrawUnits.begin(); ti != tempDrawUnits.end(); ++ti) {
+		for (std::multimap<int, TempDrawUnit>::iterator ti = tempDrawUnits.begin(); ti != tempDrawUnits.end(); ++ti) {
 			if (camera->InView(ti->second.pos, 100)) {
 				glPushMatrix();
 				glTranslatef3(ti->second.pos);
@@ -750,8 +740,7 @@ void CUnitDrawer::DrawShadowPass(void)
 	else
 #endif
 	{
-		std::list<CUnit*>::iterator usi;
-		for (usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
+		for (std::list<CUnit*>::iterator usi = uh->renderUnits.begin(); usi != uh->renderUnits.end(); ++usi) {
 			CUnit* unit = *usi;
 			DoDrawUnitShadow(unit);
 		}
@@ -889,8 +878,6 @@ void CUnitDrawer::CleanUpGhostDrawing() const
 
 void CUnitDrawer::DrawCloakedUnits(bool submerged, bool noAdvShading)
 {
-	GML_RECMUTEX_LOCK(unit); // DrawCloakedUnits
-
 	bool oldAdvShading = advShading;
 	advShading = advShading && !noAdvShading;
 	if(advShading) {
@@ -906,6 +893,8 @@ void CUnitDrawer::DrawCloakedUnits(bool submerged, bool noAdvShading)
 	SetupFor3DO();
 
 	glColor4f(1, 1, 1, cloakAlpha);
+
+	GML_RECMUTEX_LOCK(unit); // DrawCloakedUnits
 
 	{
 		//FIXME: doesn't support s3o's nor does it set teamcolor
