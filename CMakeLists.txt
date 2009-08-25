@@ -5,7 +5,10 @@ project(Spring)
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/rts/build/cmake")
 
 ### Install path (relative to CMAKE_INSTALL_PREFIX)
-if    (UNIX AND NOT MINGW)
+if (APPLE)
+	set (MACOSX_BUNDLE FALSE CACHE BOOL "Whether to make application bundle on Mac OS X")
+endif (APPLE)
+if (UNIX AND NOT MINGW AND NOT MACOSX_BUNDLE)
 	set (BINDIR "bin" CACHE STRING "Where to install binaries")
 	set (LIBDIR "lib" CACHE STRING "Where to install libraries")
 	set (DATADIR "share/games/spring" CACHE STRING "Where to install game content")
@@ -15,7 +18,7 @@ if    (UNIX AND NOT MINGW)
 	set (PIXMAPS_DIR "share/pixmaps" CACHE STRING "Where to install icons")
 	set (MIME_DIR "share/mime"CACHE STRING "Where MIME definitions are located")
 	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
-else  (UNIX AND NOT MINGW)
+elseif (NOT UNIX OR MINGW)
 	set (BINDIR "." CACHE STRING "Where to install binaries")
 	set (LIBDIR "." CACHE STRING "Where to install libraries")
 	set (DATADIR "." CACHE STRING "Where to install game content")
@@ -35,7 +38,18 @@ else  (UNIX AND NOT MINGW)
 	set (CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 	set (CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
-endif (UNIX AND NOT MINGW)
+elseif (MACOSX_BUNDLE)
+	set (CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/spring")
+	set (BUNDLE_NAME "Spring" CACHE STRING "The name of Spring bundle.")
+	# /usr/local is not a good place for application bundle and users can move this directory to anywhere they want.
+	set (BINDIR ".")
+	set (LIBDIR "${BUNDLE_NAME}.app/Contents/Resources")
+	set (DATADIR "${BUNDLE_NAME}.app/Contents/Resources")
+	set (AIDIR "${BUNDLE_NAME}.app/Contents/Resources")
+	# They should not be changed.
+
+	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
+endif (UNIX AND NOT MINGW AND NOT MACOSX_BUNDLE)
 
 ### Usr-definable build options
 set (AIINTERFACES "ALL" CACHE STRING "Which AI Interfaces (and AIs using them) to build [ALL|NATIVE|JAVA|NONE]")
@@ -64,7 +78,15 @@ else (CMAKE_HOST_WIN32)
 	set(PATH_DELIM ":")
 endif(CMAKE_HOST_WIN32)
 
-if    (NOT MINGW)
+if    (APPLE)
+	set (CMAKE_SHARED_MODULE_SUFFIX ".dylib")
+	# it is ".so" by dafault, but spring searches for dylibs for AIs.
+	if   (MACOSX_BUNDLE)
+		ADD_DEFINITIONS(-DMACOSX_BUNDLE)
+	endif(MACOSX_BUNDLE)
+endif (APPLE)
+
+if    (NOT MINGW AND NOT MACOSX_BUNDLE)
 	set (SPRING_DATADIR CACHE STRING "Path to game content (in addition to /etc/spring/datadir)")
 	set (SPRING_DATADIR_INTERNAL "")
 	if    (SPRING_DATADIR)
@@ -75,7 +97,7 @@ if    (NOT MINGW)
 	endif (NOT "${DATADIR}" STREQUAL "${AIDIR}")
 	set (SPRING_DATADIR_INTERNAL "${SPRING_DATADIR_INTERNAL}${CMAKE_INSTALL_PREFIX}/${DATADIR}")
 	add_definitions(-DSPRING_DATADIR="${SPRING_DATADIR_INTERNAL}")
-endif (NOT MINGW)
+endif (NOT MINGW AND NOT MACOSX_BUNDLE)
 
 set (CUSTOM_COMPILER_DEFINITIONS "" CACHE STRING "Custom flags can be defined here")
 if    (CUSTOM_COMPILER_DEFINITIONS)
@@ -208,13 +230,13 @@ install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/game/ DESTINATION ${DATADIR} PATT
 install (DIRECTORY ${CMAKE_BINARY_DIR}/base DESTINATION ${DATADIR})
 
 ### Install freedesktop-files, mime-types etc.
-if    (UNIX AND NOT MINGW)
+if    (UNIX AND NOT MINGW AND NOT MACOSX_BUNDLE)
 	install (FILES installer/freedesktop/applications/spring.desktop DESTINATION ${APPLICATIONS_DIR})
 	install (FILES installer/freedesktop/mime/spring.xml DESTINATION ${MIME_DIR}/packages)
 	install (FILES installer/freedesktop/pixmaps/spring.png installer/freedesktop/pixmaps/application-x-spring-demo.png DESTINATION ${PIXMAPS_DIR})
-else  (UNIX AND NOT MINGW)
+elseif(NOT UNIX OR MINGW)
 	install (DIRECTORY ${MINGWLIBS}/dll/ DESTINATION ${BINDIR} PATTERN "*.dll")
-endif (UNIX AND NOT MINGW)
+endif (UNIX AND NOT MINGW AND NOT MACOSX_BUNDLE)
 
 # additional tools
 
