@@ -9,7 +9,11 @@
 #include <shlwapi.h>
 #include "System/Platform/Win/WinVersion.h"
 
-#elif MACOSX_BUNDLE
+#elif defined(__APPLE__)  && !defined(MACOSX_BUNDLE)
+#include <dlfcn.h>
+
+#elif defined(__APPLE__)  && defined(MACOSX_BUNDLE)
+#include <dlfcn.h>
 #include <CoreFoundation/CoreFoundation.h>
 
 #else
@@ -21,7 +25,7 @@ namespace Platform
 
 std::string GetBinaryPath()
 {
-#ifdef linux
+#if defined(linux) || (defined(MACOSX_BUNDLE) && !defined(UNITSYNC))
 	std::string path(GetBinaryFile());
 	size_t pathlength = path.find_last_of('/');
 	if (pathlength != std::string::npos)
@@ -38,23 +42,6 @@ std::string GetBinaryPath()
 	_splitpath(currentDir, drive, dir, file, ext);
 	_makepath(currentDir, drive, dir, NULL, NULL);
 	return std::string(currentDir);
-
-#elif MACOSX_BUNDLE
-	char cPath[1024];
-	CFBundleRef mainBundle = CFBundleGetMainBundle();
-
-	CFURLRef mainBundleURL = CFBundleCopyBundleURL(mainBundle);
-	CFURLRef binaryPathURL = CFURLCreateCopyDeletingLastPathComponent(kCFAllocatorDefault , mainBundleURL);
-
-	CFStringRef cfStringRef = CFURLCopyFileSystemPath(binaryPathURL, kCFURLPOSIXPathStyle);
-
-	CFStringGetCString(cfStringRef, cPath, 1024, kCFStringEncodingASCII);
-
-	CFRelease(mainBundleURL);
-	CFRelease(binaryPathURL);
-	CFRelease(cfStringRef);
-
-	return std::string(cPath);
 
 #else
 	return "";
@@ -76,9 +63,19 @@ std::string GetLibraryPath()
 	_splitpath(currentDir, drive, dir, file, ext);
 	_makepath(currentDir, drive, dir, NULL, NULL);
 	return std::string(currentDir);
-#elif MACOSX_BUNDLE
-	//TODO
-	return "";
+	
+#elif defined(__APPLE__) && defined(UNITSYNC)
+	Dl_info dlinfo;
+	
+	if(!dladdr((void*)GetLibraryPath, &dlinfo))
+		return "";
+	std::string path(dlinfo.dli_fname);
+	size_t pathlength = path.find_last_of('/');
+	if (pathlength != std::string::npos)
+		return path.substr(0, pathlength);
+	else
+		return path;
+	
 #else
 	return "";
 
@@ -105,9 +102,18 @@ std::string GetBinaryFile()
 		return "";
 	return std::string(currentDir);
 
-#elif MACOSX_BUNDLE
-	//TODO
-	return "";
+#elif MACOSX_BUNDLE && !defined(UNITSYNC)
+	Dl_info dlinfo;
+	
+	if(!dladdr((void*)GetBinaryFile, &dlinfo))
+		return "";
+	std::string binaryFile(dlinfo.dli_fname);
+	for(int i=0; i<3; i++){
+		size_t lastsep = binaryFile.find_last_of('/');
+		binaryFile.erase(lastsep);
+	}
+	return binaryFile;
+	
 #else
 	return "";
 
