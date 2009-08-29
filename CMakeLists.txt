@@ -39,7 +39,7 @@ elseif (NOT UNIX OR MINGW)
 	set (CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
 elseif (MACOSX_BUNDLE)
-	set (CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/spring")
+	set (CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/spring" CACHE STRING "Where to install Spring bundle.")
 	set (BUNDLE_NAME "Spring" CACHE STRING "The name of Spring bundle.")
 	# /usr/local is not a good place for application bundle and users can move this directory to anywhere they want.
 	set (BINDIR ".")
