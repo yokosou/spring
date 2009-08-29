@@ -453,6 +453,8 @@ void CUnit::Drop(float3 parentPos,float3 parentDir, CUnit* parent)
 	frontdir = parentDir;
 	frontdir.y = 0;
 	speed.y = 0;
+
+	script->Falling(); //start parachute animation
 }
 
 
@@ -2185,7 +2187,7 @@ unsigned int CUnit::CalcShadowLOD(unsigned int lastLOD) const
 void CUnit::PostLoad()
 {
 	//HACK:Initializing after load
-	unitDef = unitDefHandler->GetUnitByName(unitDefName);
+	unitDef = unitDefHandler->GetUnitDefByName(unitDefName);
 
 	yardMap = unitDef->yardmaps[buildFacing];
 

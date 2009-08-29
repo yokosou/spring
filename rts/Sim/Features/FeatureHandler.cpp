@@ -43,34 +43,6 @@ CFeatureHandler* featureHandler = NULL;
 
 /******************************************************************************/
 
-CR_BIND(FeatureDef, );
-
-CR_REG_METADATA(FeatureDef, (
-		CR_MEMBER(myName),
-		CR_MEMBER(description),
-		CR_MEMBER(metal),
-		CR_MEMBER(id),
-		CR_MEMBER(energy),
-		CR_MEMBER(maxHealth),
-		CR_MEMBER(reclaimTime),
-		CR_MEMBER(mass),
-		CR_MEMBER(upright),
-		CR_MEMBER(drawType),
-		//CR_MEMBER(model), FIXME
-		CR_MEMBER(modelname),
-		CR_MEMBER(resurrectable),
-		CR_MEMBER(destructable),
-		CR_MEMBER(blocking),
-		CR_MEMBER(burnable),
-		CR_MEMBER(floating),
-		CR_MEMBER(geoThermal),
-		CR_MEMBER(deathFeature),
-		CR_MEMBER(smokeTime),
-		CR_MEMBER(xsize),
-		CR_MEMBER(zsize)
-		));
-
-
 CR_BIND(CFeatureHandler, );
 
 CR_REG_METADATA(CFeatureHandler, (
@@ -119,7 +91,10 @@ CFeatureHandler::CFeatureHandler() : nextFreeID(0)
 		throw content_error("Error loading FeatureDefs");
 	}
 
-	// get most of the feature defs (missing trees and geovent from the map)
+	//! featureDefIDs start with 1
+	featureDefsVector.push_back(NULL);
+
+	//! get most of the feature defs (missing trees and geovent from the map)
 	vector<string> keys;
 	rootTable.GetKeys(keys);
 	for (int i = 0; i < (int)keys.size(); i++) {
@@ -192,14 +167,11 @@ void CFeatureHandler::AddFeatureDef(const std::string& name, FeatureDef* fd)
 }
 
 
-const FeatureDef* CFeatureHandler::CreateFeatureDef(const LuaTable& fdTable,
-                                                    const string& mixedCase)
+void CFeatureHandler::CreateFeatureDef(const LuaTable& fdTable, const string& mixedCase)
 {
 	const string name = StringToLower(mixedCase);
-	std::map<std::string, const FeatureDef*>::iterator fi = featureDefs.find(name);
-
-	if (fi != featureDefs.end()) {
-		return fi->second;
+	if (featureDefs.find(name) != featureDefs.end()) {
+		return;
 	}
 
 	FeatureDef* fd = new FeatureDef;
@@ -274,10 +246,6 @@ const FeatureDef* CFeatureHandler::CreateFeatureDef(const LuaTable& fdTable,
 	fdTable.SubTable("customParams").GetMap(fd->customParams);
 
 	AddFeatureDef(name, fd);
-
-	fi = featureDefs.find(name);
-
-	return fi->second;
 }
 
 
@@ -302,7 +270,7 @@ const FeatureDef* CFeatureHandler::GetFeatureDef(const std::string mixedCase, co
 
 const FeatureDef* CFeatureHandler::GetFeatureDefByID(int id)
 {
-	if ((id < 0) || (static_cast<size_t>(id) >= featureDefsVector.size())) {
+	if ((id < 1) || (static_cast<size_t>(id) >= featureDefsVector.size())) {
 		return NULL;
 	}
 	return featureDefsVector[id];
@@ -313,8 +281,8 @@ void CFeatureHandler::LoadFeaturesFromMap(bool onlyCreateDefs)
 {
 	PrintLoadMsg("Initializing map features");
 
+	//! add map's featureDefs
 	int numType = readmap->GetNumFeatureTypes ();
-
 	for (int a = 0; a < numType; ++a) {
 		const string name = StringToLower(readmap->GetFeatureType(a));
 
@@ -366,6 +334,7 @@ void CFeatureHandler::LoadFeaturesFromMap(bool onlyCreateDefs)
 	}
 
 	if (!onlyCreateDefs) {
+		//! create map features
 		const int numFeatures = readmap->GetNumFeatures();
 		MapFeatureInfo* mfi = new MapFeatureInfo[numFeatures];
 		readmap->GetFeatureInfo(mfi);
