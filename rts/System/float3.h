@@ -33,7 +33,7 @@ public:
 	inline void operator delete(void* p,size_t size){mempool.Free(p,size);};
 */
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__APPLE__)
 	static const float CMP_EPS;
 	static const float NORMALIZE_EPS;
 #else
