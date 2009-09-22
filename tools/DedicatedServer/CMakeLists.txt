@@ -55,7 +55,13 @@ else (MINGW)
 	set_target_properties(springserver PROPERTIES COMPILE_FLAGS "-fvisibility=default")
 endif (MINGW)
 
-ADD_EXECUTABLE(spring-dedicated main)
+SET(exec_files main)
+IF (APPLE)
+	SET(exec_files ${exec_files} ../../rts/System/Platform/Mac/SDLMain)
+	SET_SOURCE_FILES_PROPERTIES(../../rts/System/Platform/Mac/SDLMain.m PROPERTIES COMPILE_FLAGS "-msse2")
+ENDIF(APPLE)
+
+ADD_EXECUTABLE(spring-dedicated ${exec_files})
 TARGET_LINK_LIBRARIES(spring-dedicated springserver)
 
 install (TARGETS springserver spring-dedicated RUNTIME DESTINATION ${BINDIR} LIBRARY DESTINATION ${LIBDIR})
