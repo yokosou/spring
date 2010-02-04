@@ -217,6 +217,14 @@ void DataDirLocater::DeterminePermissions()
  * - all users app-data (in subdirectory Spring)
  * - compiler flags SPRING_DATADIR
  *
+ * In Mac, its generally the same as Unixes. But when installed as a bundle, its:
+ * - SPRING_DATADIR env-variable
+ * - 'SpringData=/path/to/data' declaration in '~/.springrc'. (colon separated list)
+ * - inside the bundle. (.../spring.app/Contents/Resources)
+ * - location of the bundle dir
+ * - "$HOME/.spring"
+ * - In the same order any line in '/etc/spring/datadir', if that file exists.
+ *
  * All of the above methods support environment variable substitution, eg.
  * '$HOME/myspringdatadir' will be converted by spring to something like
  * '/home/username/myspringdatadir'.
@@ -240,10 +248,14 @@ void DataDirLocater::LocateDataDirs()
 		AddDirs(SubstEnvVars(userDef));
 	}
 
+#ifndef MACOSX_BUNDLE
+	// when built as a bundle, both binary path and library path are writable, and they aren't 
+	// the same directory. So, disable them to select a right writedir.
 #ifdef UNITSYNC
 	AddDirs(Platform::GetLibraryPath());
 #else
 	AddDirs(Platform::GetBinaryPath());
+#endif
 #endif
 
 #ifdef WIN32
@@ -266,18 +278,30 @@ void DataDirLocater::LocateDataDirs()
 	cfg = strPath;
 	cfg += "\\Spring"; // e.g. F:\Dokumente und Einstellungen\All Users\Anwendungsdaten\Spring
 	AddDirs(cfg);
-#elif defined(MACOSX_BUNDLE)
-	// Maps and mods are supposed to be located in spring's executable location on Mac, but unitsync
-	// cannot find them since it does not know spring binary path. I have no idea but to force users 
-	// to locate lobby executables in the same as spring's dir and add its location to search dirs.
-#ifdef UNITSYNC
-	AddDirs(Platform::GetBinaryPath());
 #endif
-	// libs and data are supposed to be located in subdirectories of spring executable, so they
-	// sould be added instead of SPRING_DATADIR definition.
-	AddDirs(Platform::GetBinaryPath() + "/" + SubstEnvVars(DATADIR));
-	AddDirs(Platform::GetBinaryPath() + "/" + SubstEnvVars(LIBDIR));
+#ifdef MACOSX_BUNDLE
+	// If MACOSX_BUNDLE is defined, spring is built as a application bundle, which is actually a directory with
+	// ".app" suffix that can hold resources and a executable file inside it (but it seems like a file in GUI).
+	//
+	// Platform::GetBinaryFile/Path will return Bundle's path (Platform::GetLibraryFile will return the path of 
+	// dylib file itself).
+	//
+	// Mods and maps are now sopposed to be located in the same directory as the bundle. Unitsync and all other 
+	// game contents are located in .../spring.app/Contents/Resources. But ideally, mods and maps should be placed
+	// inside the bundle and drag & drop install of them should be supported.
+#ifdef UNITSYNC
+	AddDirs(Platform::GetLibraryPath()); // .../spring.app/Contents/Resources
+	std::string springPath = Platform::GetLibraryPath();
+	for(int i=0; i<3; i++){
+		size_t lastsep = springPath.find_last_of('/');
+		springPath.erase(lastsep);
+	}
+	AddDirs(springPath); // the directry where spring.app is located
 #else
+	AddDirs(Platform::GetBinaryFile() + "/Contents/Resources"); // .../spring.app/Contents/Resources
+	AddDirs(Platform::GetBinaryPath()); // the directry where spring.app is located
+#endif
+#endif
 	// home
 	AddDirs(SubstEnvVars("$HOME/.spring"));
 
@@ -295,7 +319,6 @@ void DataDirLocater::LocateDataDirs()
 		}
 		fclose(f);
 	}
-#endif
 
 	// compiler flags
 #ifdef SPRING_DATADIR
