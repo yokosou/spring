@@ -1,4 +1,4 @@
-### Cmake 2.4 lacks some cross-compiling features and fails on windows
+ ### Cmake 2.4 lacks some cross-compiling features and fails on windows
 cmake_minimum_required(VERSION 2.6)
 project(Spring)
 
@@ -6,7 +6,7 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/rts/build/cmake")
 
 ### Install path (relative to CMAKE_INSTALL_PREFIX)
 if (APPLE)
-	set (MACOSX_BUNDLE FALSE CACHE BOOL "Whether to make application bundle on Mac OS X")
+	set (MACOSX_BUNDLE TRUE CACHE BOOL "Whether to make application bundle on Mac OS X")
 endif (APPLE)
 if (UNIX AND NOT MINGW AND NOT MACOSX_BUNDLE)
 	set (BINDIR  "bin"                CACHE STRING "Where to install binaries")
@@ -38,7 +38,9 @@ elseif (NOT UNIX OR MINGW)
 	set (CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
 elseif (MACOSX_BUNDLE)
-	set (CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/spring" CACHE STRING "Where to install Spring bundle.")
+	if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+		set (CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}" CACHE STRING "Where to install Spring bundle." FORCE)
+	endif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 	set (BUNDLE_NAME "Spring" CACHE STRING "The name of Spring bundle.")
 	# /usr/local is not a good place for application bundle and users can move this directory to anywhere they want.
 	set (BINDIR ".")
